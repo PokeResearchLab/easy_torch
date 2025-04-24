@@ -227,25 +227,25 @@ def prepare_trainer(seed=42, raytune=False, **trainer_kwargs):
     return trainer
 
 # Function to prepare a loss function
-def prepare_loss(loss_info, additional_module=None, seed=42):
+def prepare_loss(loss_info, seed=42, *additional_modules):
     pl.seed_everything(seed) # Seed the random number generator
     if isinstance(loss_info, str):
         # If 'loss' is a string, assume it's the name of a loss function
-        loss = get_single_loss(loss_info, {}, additional_module)
+        loss = get_single_loss(loss_info, {}, *additional_modules)
     elif isinstance(loss_info, dict):
         # If 'loss' is a dictionary, assume it contains loss name and parameters
         loss = {}
         for loss_name, loss_params in sorted(loss_info.items()):
             if loss_name != "__weight__":
-                loss[loss_name] = get_single_loss(loss_params["name"], loss_params.get("params",{}), additional_module)
+                loss[loss_name] = get_single_loss(loss_params["name"], loss_params.get("params",{}), *additional_modules)
         loss = torch.nn.ModuleDict(loss)
         loss.__weight__ = loss_info.get("__weight__", torch.ones(len(loss)))
     else:
         raise NotImplementedError
     return loss
 
-def get_single_loss(loss_name, loss_params, additional_module=None):
-    return get_function(loss_name, loss_params, additional_module, custom_losses, torch.nn)
+def get_single_loss(loss_name, loss_params, *additional_modules):
+    return get_function(loss_name, loss_params, *additional_modules, custom_losses, torch.nn)
 
 def get_single_callback(callback_name, callback_params, additional_module=None):
     return get_function(callback_name, callback_params, additional_module, custom_callbacks, pl.callbacks, ray_lightning)
@@ -257,7 +257,7 @@ def get_function(function_name, function_params, *modules):
     # Return the function using the name and parameters
     return getattr(function_module, function_name)(**function_params)
 
-def prepare_metrics(metrics_info, additional_module=None, split_keys={"train":1,"val":2,"test":3}, seed=42):
+def prepare_metrics(metrics_info, split_keys={"train":1,"val":2,"test":3}, seed=42, *additional_modules):
     # TODO: repeat metric if same dataloader is used for multiple splits?
 
     # Initialize an empty dictionary to store metrics
@@ -286,7 +286,7 @@ def prepare_metrics(metrics_info, additional_module=None, split_keys={"train":1,
                 
                 pl.seed_everything(seed) # Seed the random number generator
                 # Create a metric object using getattr and store it in the metrics dictionary
-                metrics[split_name][-1][metric_name] = get_function(metric_name, metric_vals, additional_module, custom_metrics, torchmetrics)
+                metrics[split_name][-1][metric_name] = get_function(metric_name, metric_vals, *additional_modules, custom_metrics, torchmetrics)
             metrics[split_name][-1] = torch.nn.ModuleDict(metrics[split_name][-1])
         metrics[split_name] = torch.nn.ModuleList(metrics[split_name])
     
@@ -444,16 +444,16 @@ def complete_prepare_trainer(cfg, experiment_id, model_params=None, additional_m
 
     return trainer
 
-def complete_prepare_model(cfg, main_module, model_params=None, additional_module={}):
+def complete_prepare_model(cfg, main_module, model_params=None, *additional_modules):
     model_params = deepcopy(cfg["model"])
 
-    model_params["loss"] = prepare_loss(model_params["loss"], getattr(additional_module,"losses",None))
+    model_params["loss"] = prepare_loss(model_params["loss"], *additional_modules)
 
     # Prepare the optimizer using configuration from cfg
     model_params["optimizer"] = prepare_optimizer(**model_params["optimizer"])
 
     # Prepare the metrics using configuration from cfg
-    model_params["metrics"] = prepare_metrics(model_params["metrics"], getattr(additional_module,"metrics",None))
+    model_params["metrics"] = prepare_metrics(model_params["metrics"], *additional_modules)
 
     # Create the model using main_module, loss, and optimizer
     model = process.create_model(main_module, **model_params)
