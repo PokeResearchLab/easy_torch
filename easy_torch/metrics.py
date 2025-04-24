@@ -37,3 +37,42 @@ class SoftLabelsAccuracy(torchmetrics.Metric):
 #     def forward(self, preds: torch.Tensor, target: torch.Tensor):
 #         # Calculate accuracy by comparing predicted and actual class labels
 #         return (preds.argmax(dim=1) == target.argmax(dim=1)).float().mean()
+
+class BatchLength(torchmetrics.Metric):
+    """
+    A metric to compute the average batch length.
+
+    Args:
+        batch_size (int): The size of the batch.
+    """
+    def __init__(self, batch_dim=1):
+        super().__init__()
+        self.batch_dim = batch_dim
+        self.add_state("total", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("count", default=torch.tensor(0.), dist_reduce_fx="sum")
+        self.add_state("min", default=torch.tensor(float("inf")), dist_reduce_fx="min")
+        self.add_state("max", default=torch.tensor(float("-inf")), dist_reduce_fx="max")
+
+    def update(self, batch: torch.Tensor, *args, **kwargs):
+        """
+        Updates the metric with the current batch length.
+
+        Args:
+            batch_length (torch.Tensor): The length of the current batch.
+        """
+        length = torch.tensor(batch.shape[self.batch_dim], dtype=torch.float32)
+        self.total += length
+        self.min = torch.minimum(self.min, length)
+        self.max = torch.maximum(self.max, length)
+        self.count += 1
+
+    def compute(self):
+        """
+        Computes and returns the average batch length.
+        """
+        out = {
+            "min": self.min,
+            "max": self.max,
+            "avg": self.total / self.count
+        }
+        return out
