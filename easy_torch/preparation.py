@@ -227,7 +227,7 @@ def prepare_trainer(seed=42, raytune=False, **trainer_kwargs):
     return trainer
 
 # Function to prepare a loss function
-def prepare_loss(loss_info, seed=42, *additional_modules):
+def prepare_loss(loss_info, *additional_modules, seed=42):
     pl.seed_everything(seed) # Seed the random number generator
     if isinstance(loss_info, str):
         # If 'loss' is a string, assume it's the name of a loss function
@@ -257,7 +257,7 @@ def get_function(function_name, function_params, *modules):
     # Return the function using the name and parameters
     return getattr(function_module, function_name)(**function_params)
 
-def prepare_metrics(metrics_info, split_keys={"train":1,"val":2,"test":3}, seed=42, *additional_modules):
+def prepare_metrics(metrics_info, *additional_modules, split_keys={"train":1,"val":2,"test":3}, seed=42):
     # TODO: repeat metric if same dataloader is used for multiple splits?
 
     # Initialize an empty dictionary to store metrics
@@ -444,24 +444,23 @@ def complete_prepare_trainer(cfg, experiment_id, model_params=None, additional_m
 
     return trainer
 
-def complete_prepare_model(cfg, main_module, model_params=None, *additional_modules):
+def complete_prepare_model(cfg, main_module, *additional_modules, model_params=None):
     model_params = deepcopy(cfg["model"])
 
-    model_params["loss"] = prepare_loss(model_params["loss"], *additional_modules)
+    model_params["loss"] = prepare_loss(model_params["loss"], *[getattr(module,"losses",module) for module in additional_modules])
 
     # Prepare the optimizer using configuration from cfg
     model_params["optimizer"] = prepare_optimizer(**model_params["optimizer"])
 
     # Prepare the metrics using configuration from cfg
-    model_params["metrics"] = prepare_metrics(model_params["metrics"], *additional_modules)
+    model_params["metrics"] = prepare_metrics(model_params["metrics"], *[getattr(module,"metrics",module) for module in additional_modules])
 
     # Create the model using main_module, loss, and optimizer
     model = process.create_model(main_module, **model_params)
 
     return model
 
-
-
+#TODO: check additional_modules functionality
 
 # Deprecated
 def prepare_profiler(trainer_params, additional_module=None, seed=42):
