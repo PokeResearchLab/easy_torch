@@ -47,6 +47,7 @@ class BatchLength(torchmetrics.Metric):
     """
     def __init__(self, batch_dim=1):
         super().__init__()
+        self.out_keys = ["avg", "max", "min"]
         self.batch_dim = batch_dim
         self.add_state("total", default=torch.tensor(0.), dist_reduce_fx="sum")
         self.add_state("count", default=torch.tensor(0.), dist_reduce_fx="sum")

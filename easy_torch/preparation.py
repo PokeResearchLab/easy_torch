@@ -287,7 +287,7 @@ def prepare_metrics(metrics_info, *additional_modules, split_keys={"train":1,"va
                 pl.seed_everything(seed) # Seed the random number generator
 
                 # Check if metric_name is the special FakeMetricCollectionMetric
-                true_metric_name, metric_vals = handle_FakeMetricCollection(metric_name, metric_vals, *additional_modules)
+                metric_name, true_metric_name, metric_vals = handle_FakeMetricCollection(metric_name, metric_vals, *additional_modules)
 
                 # Create a metric object using getattr and store it in the metrics dictionary
                 metrics[split_name][-1][true_metric_name] = get_function(metric_name, *additional_modules, custom_metrics, torchmetrics)(**metric_vals)
@@ -300,11 +300,12 @@ def prepare_metrics(metrics_info, *additional_modules, split_keys={"train":1,"va
 
 def handle_FakeMetricCollection(metric_name, metric_params, *additional_modules):
     # Check if the metric name is "FakeMetricCollectionMetric"
-    if metric_name == "FakeMetricCollection":
-        metric_name = metric_params["metric_class"]
+    true_metric_name = metric_name
+    if "FakeMetricCollection" in metric_name:
+        metric_name,true_metric_name = metric_name.split(":") #TODO Check if best way to split
         # Get the actual class from the name
-        metric_params = {**metric_params, "metric_class": get_function(metric_name, *additional_modules, custom_metrics, torchmetrics)} #to avoid overwriting the original metric_params
-    return metric_name, metric_params
+        metric_params = {**metric_params, "metric_class": get_function(true_metric_name, *additional_modules, custom_metrics, torchmetrics)} #to avoid overwriting the original metric_params
+    return metric_name, true_metric_name, metric_params
 
 def prepare_optimizer(name, params={}, seed=42):
     pl.seed_everything(seed) # Seed the random number generator
