@@ -2,6 +2,7 @@ import time
 import pytorch_lightning as pl
 import platform, subprocess, time
 import numpy as np
+import torch
 
 class TimeCallback(pl.callbacks.Callback):
     def __init__(self, log_params={}):
@@ -61,3 +62,10 @@ class TemperatureSlowdownCallback(pl.callbacks.Callback):
                         time.sleep(self.sleep_time)
             except Exception as e:
                 print(f"Error checking GPU temperature: {e}")
+
+class TerminateOnNaNCallback(pl.callbacks.Callback):
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        loss = outputs.get("loss") if isinstance(outputs, dict) else outputs
+        if loss is not None and torch.isnan(loss):
+            print(f"NaN loss detected at batch {batch_idx}. Stopping training.")
+            trainer.should_stop = True

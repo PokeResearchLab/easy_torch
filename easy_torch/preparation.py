@@ -159,7 +159,7 @@ def prepare_logger(trainer_params, additional_module=None, seed=42):
         # Get the logger class based on its name and initialize it with parameters
         if not os.path.exists(trainer_params["logger"]["params"]["save_dir"]):
             os.makedirs(trainer_params["logger"]["params"]["save_dir"])
-        logger = get_function(trainer_params["logger"]["name"], trainer_params["logger"]["params"], additional_module, pl.loggers)
+        logger = get_function(trainer_params["logger"]["name"], additional_module, pl.loggers)(**trainer_params["logger"]["params"])
         #if isinstance(logger, pl.loggers.wandb.WandbLogger):
         #This is the case when the logger is wandb so we check for the entity and the the key
             #log_wandb(trainer_params)
@@ -202,7 +202,7 @@ def prepare_plugins(trainer_params, additional_module=None):
                 plugin_name = plugin_info["name"]
                 plugin_params = plugin_info.get("params", {})
             
-            plugin = get_function(plugin_name, plugin_params, additional_module, pl.plugins, ray_lightning)
+            plugin = get_function(plugin_name, additional_module, pl.plugins, ray_lightning)(**plugin_params)
 
             plugins.append(plugin)
 
@@ -245,17 +245,17 @@ def prepare_loss(loss_info, *additional_modules, seed=42):
     return loss
 
 def get_single_loss(loss_name, loss_params, *additional_modules):
-    return get_function(loss_name, loss_params, *additional_modules, custom_losses, torch.nn)
+    return get_function(loss_name, *additional_modules, custom_losses, torch.nn)(**loss_params)
 
 def get_single_callback(callback_name, callback_params, additional_module=None):
-    return get_function(callback_name, callback_params, additional_module, custom_callbacks, pl.callbacks, ray_lightning)
+    return get_function(callback_name, additional_module, custom_callbacks, pl.callbacks, ray_lightning)(**callback_params)
 
-def get_function(function_name, function_params, *modules):
+def get_function(function_name, *modules):
     # Check if the function_name exists in additional_module or torch/torchmetrics
     function_module = get_correct_package(function_name, *modules)
     
     # Return the function using the name and parameters
-    return getattr(function_module, function_name)(**function_params)
+    return getattr(function_module, function_name)
 
 def prepare_metrics(metrics_info, *additional_modules, split_keys={"train":1,"val":2,"test":3}, seed=42):
     # TODO: repeat metric if same dataloader is used for multiple splits?
@@ -285,14 +285,26 @@ def prepare_metrics(metrics_info, *additional_modules, split_keys={"train":1,"va
                     raise NotImplementedError  # Raise an error for unsupported input types
                 
                 pl.seed_everything(seed) # Seed the random number generator
+
+                # Check if metric_name is the special FakeMetricCollectionMetric
+                true_metric_name, metric_vals = handle_FakeMetricCollection(metric_name, metric_vals, *additional_modules)
+
                 # Create a metric object using getattr and store it in the metrics dictionary
-                metrics[split_name][-1][metric_name] = get_function(metric_name, metric_vals, *additional_modules, custom_metrics, torchmetrics)
+                metrics[split_name][-1][true_metric_name] = get_function(metric_name, *additional_modules, custom_metrics, torchmetrics)(**metric_vals)
             metrics[split_name][-1] = torch.nn.ModuleDict(metrics[split_name][-1])
         metrics[split_name] = torch.nn.ModuleList(metrics[split_name])
     
     # Convert the metrics dictionary to a ModuleDict for easy handling
     metrics = utils.RobustModuleDict(metrics)
     return metrics
+
+def handle_FakeMetricCollection(metric_name, metric_params, *additional_modules):
+    # Check if the metric name is "FakeMetricCollectionMetric"
+    if metric_name == "FakeMetricCollection":
+        metric_name = metric_params["metric_class"]
+        # Get the actual class from the name
+        metric_params = {**metric_params, "metric_class": get_function(metric_name, *additional_modules, custom_metrics, torchmetrics)} #to avoid overwriting the original metric_params
+    return metric_name, metric_params
 
 def prepare_optimizer(name, params={}, seed=42):
     pl.seed_everything(seed) # Seed the random number generator
@@ -389,7 +401,6 @@ def prepare_metrics(metrics_info):
 
 # Function to add experiment info to ModelCheckpoint
 # def add_exp_info_to_ModelCheckpoint(callbacks_dict, add_to_dirpath):
-#     # print(callbacks_dict)
 #     new_list = copy.deepcopy(callbacks_dict)
 
 #     for MC_index, dc in enumerate(new_list):
@@ -397,7 +408,6 @@ def prepare_metrics(metrics_info):
 #             break
 
 #     new_list[MC_index]["ModelCheckpoint"]["dirpath"] += str(add_to_dirpath)
-#     # print(new_list)
 #     return new_list
 
 # Function to express neurons per layers

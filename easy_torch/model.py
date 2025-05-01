@@ -28,14 +28,14 @@ class BaseNN(pl.LightningModule):
 
         # Define a custom logging function
         self.log_params = log_params
-        #self.custom_log = lambda name, value: self.log(name, value, **log_params)
 
     def log(self, name, value):
         original_log_function = super().log
         if value is not None:
-            if isinstance(value, dict):
-                for key in value:
-                    self.log(name+'_'+key, value[key])
+            if isinstance(value, dict) or isinstance(value, torchmetrics.MetricCollection):
+                for key,value_to_log in value.items():
+                    log_name = "_".join([x for x in [name, key] if x is not None and x != ""])
+                    self.log(log_name, value_to_log)
                     # if to_log.size() != 1 and len(to_log.size()) != 0: #Save metrics in batch; TODO: make this better
                     #     if split_name == "test":
                     #         save_path = os.path.join(self.logger.save_dir, self.logger.name, f'version_{self.logger.version}',f"metrics_per_sample.csv")
@@ -56,13 +56,8 @@ class BaseNN(pl.LightningModule):
         optimizer = self.optimizer(self.parameters())   
         return optimizer
 
-    def on_epoch_end(self):
-        # Step through each scheduler
-        for scheduler in self.lr_schedulers():
-            scheduler.step()
-
     # Define a step function for processing a batch
-    def step(self, batch, batch_idx, dataloader_idx, split_name):
+    def step(self, batch, batch_idx, dataloader_idx, split_name): #not a lightning method
         #TODO: what to do with batch_idx and dataloader_idx?
         model_output = self.compute_model_output(batch, self.step_routing["model_input_from_batch"])
         lightning_module_return = {"model_output": model_output}
@@ -129,7 +124,15 @@ class BaseNN(pl.LightningModule):
 
         input_args, input_kwargs = self.get_input_args_kwargs((batch, batch_routing), (model_output, output_routing))
 
-        value = func(*input_args,**input_kwargs)
+        # if isinstance(func, torchmetrics.Metric): #This can compute the metric across batches #TODO? choose if we want to compute the metric across batches or not
+        #     print("COMPUTING METRIC", split_name)
+        #     func.update(*input_args,**input_kwargs)
+        #     value = func#.compute()
+        #     print("TOT:",func.total)
+        # else:
+        value = func(*input_args, **input_kwargs) #if a torchmetrics metric, this will get the values just for this batch
+        if isinstance(func, torchmetrics.Metric) or isinstance(func, torchmetrics.MetricCollection): #This won't work if the TorchMetrics.Metric returns a dict, cause Torchmetrics wants a tensor
+            value = func
 
         log_name = split_name+'_'+name
         self.log(log_name, value)
@@ -156,19 +159,44 @@ class BaseNN(pl.LightningModule):
     # Predict step
     def predict_step(self, batch, batch_idx, dataloader_idx=0): return self.step(batch, batch_idx, dataloader_idx, "predict")
 
-    def on_train_epoch_end(self) -> None:
-        self.on_epoch_end("train")
+    # def on_train_epoch_end(self) -> None:
+    #     self.on_epoch_end("train")
     
-    def on_validation_epoch_end(self) -> None:
-        self.on_epoch_end("val")
+    # def on_validation_epoch_end(self) -> None:
+    #     self.on_epoch_end("val")
 
-    def on_test_epoch_end(self) -> None:
-        self.on_epoch_end("test")
+    # def on_test_epoch_end(self) -> None:
+    #     self.on_epoch_end("test")
 
-    def on_epoch_end(self, split_name): #not a lightning method
-        for metric_func in self.metrics.values():
-            if isinstance(metric_func, torchmetrics.metric.Metric):
-                metric_func.reset()
+    # def on_epoch_end(self, *args, **kwargs):
+    #     pass
+
+    # def on_epoch_end(self, *args, **kwargs):
+    #     # Step through each scheduler
+    #     for scheduler in self.lr_schedulers():
+    #         scheduler.step()
+
+    # def on_epoch_end(self, split_name): #not a lightning method
+    #     if self.log_params.get("on_epoch", False):
+    #         for dataloader_idx, metric_dict in enumerate(self.metrics[split_name]):
+    #             for metric_name, metric_func in metric_dict.items():
+    #                 log_name = f"{split_name}_{metric_name}"
+    #                 print(metric_func.total)
+    #                 print("LOGGING", log_name, f"epoch/dataloader_{dataloader_idx}")
+    #                 self.log(log_name, metric_func.compute(), log_params={**self.log_params, "on_step": False}, suffix=f"epoch", dataloader_idx=dataloader_idx)
+    #                 metric_func.reset()
+    #     self.reset_metrics(self.metrics[split_name])
+    
+    # def reset_metrics(self, metrics):
+    #     if isinstance(metrics, torchmetrics.Metric):
+    #         metrics.reset()
+    #         print("RESET", metrics)
+    #     elif isinstance(metrics, torch.nn.ModuleList) or isinstance(metrics, list):
+    #         for metric in metrics:
+    #             self.reset_metrics(metric)
+    #     elif isinstance(metrics, torch.nn.ModuleDict) or isinstance(metrics, dict):
+    #         for metric in metrics.values():
+    #             self.reset_metrics(metric)
 
 # Define functions for getting and loading torchvision models
 def get_torchvision_model(*args, **kwargs): return torchvision_utils.get_torchvision_model(*args, **kwargs)
