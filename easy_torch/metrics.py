@@ -81,7 +81,7 @@ class BatchLength(torchmetrics.Metric):
 class FakeMetricCollection(torchmetrics.MetricCollection):
     # A collection of fake metrics that actually call just once the update / compute part
     def __init__(self, metric_class, keys_name="out_keys", *args, **kwargs):
-        metric = metric_class()
+        metric = metric_class(*args, **kwargs)
         keys = sorted(getattr(metric, keys_name))
         primary_key = str(keys[0])
         metrics = {primary_key: make_fake_class(metric_class)(primary_key, *args, **kwargs)}
@@ -99,7 +99,7 @@ def make_fake_class(base_class):
             out = super().compute(*args, **kwargs)
             for key,value in out.items():
                 setattr(self, str(key), value)
-            return out[self.primary_key]
+            return out.get(self.primary_key)
 
     return FakeTrueMetric
 
@@ -113,4 +113,4 @@ class FakeMetric(torchmetrics.Metric):
         pass
 
     def compute(self, *args, **kwargs):
-        return getattr(self.true_metric, self.key)
+        return getattr(self.true_metric, self.key, None)
